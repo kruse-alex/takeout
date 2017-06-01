@@ -1,0 +1,150 @@
+#############################################################################################################################################
+# PACKAGES
+#############################################################################################################################################
+
+# pkg
+require(dplyr)
+require(rjson)
+require(jsonlite)
+require(bipartite)
+require(stringr)
+library(qdapTools)
+library(tidyr)
+require(qdap)
+require(igraph)
+require(pluralize)
+require(tm)
+require(ggnetwork)
+
+#############################################################################################################################################
+# DATA LOAD AND PROCESSING
+#############################################################################################################################################
+
+# import json and format to data frame
+filenames <- list.files("C:/Users/akruse/Documents/Projekte_Weitere/Google/Takeout/Takeout/Searches/", pattern="*.json", full.names=TRUE)
+
+# loop to put all unlisted jsons together
+big_data_list = list()
+for(j in 1:26){
+
+mydata = rjson::fromJSON(file = filenames[j])
+
+# loop for every json file
+datalist = list()
+for (i in 1:length(mydata$event)) {
+
+  dat = as.data.frame(flatten(as.data.frame(mydata$event[[i]])))
+  dat = select(dat, contains("timestamp_usec")[1], query.query_text)
+  colnames(dat) = c("timestamp","query")
+  datalist[[i]] = dat # add it to your list
+  
+}
+
+big_data = do.call(rbind, datalist)
+big_data_list[[j]] = big_data
+
+}
+
+mydata_all = do.call(rbind, big_data_list)
+rm(i,j,mydata,datalist,big_data_list,dat, big_data, filenames)
+
+# format googles stupid timestamp to real life
+mydata_all$timestamp_real = substr(mydata_all$timestamp, start = 1, stop = 10)
+mydata_all$timestamp_real = as.POSIXct(as.numeric(mydata_all$timestamp_real), origin="1970-01-01")
+
+mydata = mydata_all
+mydata$query = gsub("\\+"," ",mydata$query)
+
+#############################################################################################################################################
+# FILTER ON R RELATED QUERIES
+#############################################################################################################################################
+
+# filter on r
+mydata = mydata[grepl("^r ", mydata$query) | grepl(" r ", mydata$query), ]
+mydata$query = gsub("^r ", "", mydata$query)
+mydata$query = gsub(" r ", "", mydata$query)
+
+# remove rare words in queries
+mydata_words = mydata$query %>%
+  str_split(" ") %>%
+  unlist %>%
+  table %>%
+  data.frame %>%
+  arrange(-Freq) %>%
+  filter(Freq < 5)
+mydata_words = mydata_words$.
+
+mydata$query = removeWords(mydata$query,mydata_words)
+mydata = mydata[!(is.na(mydata$query) | mydata$query=="" | mydata$query==" " | mydata$query=="  "), ]
+
+# singularize words
+mydata$query = singularize(mydata$query)
+mydata$query[mydata$query == "datum"] = "data"
+
+
+#############################################################################################################################################
+# NETWORK ANALYSIS
+#############################################################################################################################################
+
+# word co occurence
+mydata = select(mydata, query)
+mydata$sequence_id = seq(1:nrow(mydata))
+
+x <- t(mtabulate(with(mydata, by(query, sequence_id, bag_o_words))) > 0)
+out <- x %*% t(x)
+out[upper.tri(out, diag=TRUE)] <- NA
+
+links <- matrix2df(out, "word1") %>%
+  gather(word2, freq, -word1) %>%
+  na.omit() 
+
+rownames(links) <- NULL
+links = filter(links, freq >= 10)
+
+nodes2 = as.data.frame(unique(links$word2))
+colnames(nodes2) = "names"
+nodes1 = as.data.frame(unique(links$word1))
+colnames(nodes1) = "names"
+nodes = rbind(nodes1,nodes2)
+nodes = as.data.frame(nodes[!duplicated(nodes), ])
+colnames(nodes) = "names"
+rm(nodes1,nodes2)
+rm(out,x)
+
+# add freq to nodes
+mydata_words = mydata$query %>%
+  str_split(" ") %>%
+  unlist %>%
+  table %>%
+  data.frame %>%
+  arrange(-Freq) %>%
+  filter(Freq > 0)
+
+nodes = merge(nodes, mydata_words, by.x = "names", by.y = ".", all.x = T)
+
+#############################################################################################################################################
+# GGNETWORK
+#############################################################################################################################################
+
+# with ggnetwork
+net <- graph_from_data_frame(d=links, vertices=nodes, directed=F)
+#net <- simplify(net, remove.multiple = T, remove.loops = T)
+
+V(net)$degree <- as_adjacency_matrix(net, attr = "freq", sparse = FALSE) %>%
+  degree_w %>%
+  .[, 3]
+
+n = ggnetwork(net, layout = "fruchtermanreingold", weights = "Freq", niter = 20000)
+
+library(readr)
+write_csv(n,"dat.csv")
+n <- read_csv("dat.csv")
+
+myPalette <- colorRampPalette(c("#66b3ff", "#00264d"))
+
+ggplot(n, aes(x = x, y = y, xend = xend, yend = yend)) +
+  geom_edges(aes(alpha = Freq)) +
+  geom_nodelabel(aes(label = n$vertex.names, color = degree)) +
+  theme_blank() +
+  scale_colour_gradientn(colours = myPalette(100)) +
+  theme(legend.position="none")
