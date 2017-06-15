@@ -23,11 +23,11 @@ library(readr)
 #############################################################################################################################################
 
 # load file names with json ending
-filenames = list.files("C:/Users/akruse/Documents/Projekte_Weitere/Google/Takeout/Takeout/Searches/", pattern="*.json", full.names=TRUE)
+filenames = list.files("C:/Users/Alex/Documents/R/google/", pattern="*.json", full.names=TRUE)
 
 # loop: import json files
 big_data_list = list()
-for(j in 1:26){
+for(j in 1:length(filenames)){
   
   mydata = rjson::fromJSON(file = filenames[j])
   
@@ -103,7 +103,7 @@ rm(time, mydata_words)
 # loop: create one network for every time period
 datalist = list()
 datalist1 = list()
-for(i in 1:max(mydata_all2$time)){
+for(i in 5:max(mydata_all2$time)){
   
   # filter on time
   mydata = filter(mydata_all2, time <= i)
@@ -122,7 +122,7 @@ for(i in 1:max(mydata_all2$time)){
   
   # remove rare word combinations
   rownames(links) = NULL
-  links = filter(links, freq > 0)
+  links = filter(links, freq >= 5)
   links$time = i
   
   # compute network nodes
@@ -143,7 +143,7 @@ for(i in 1:max(mydata_all2$time)){
     table %>%
     data.frame %>%
     arrange(-Freq) %>%
-    filter(Freq > 0)
+    filter(Freq > 1)
   
   nodes = merge(nodes, mydata_words, by.x = "names", by.y = ".", all.x = T)
   nodes$time = i
@@ -156,11 +156,11 @@ for(i in 1:max(mydata_all2$time)){
 # close loop
 nodes = do.call(rbind, datalist)
 links = do.call(rbind, datalist1)
-  
+
 #############################################################################################################################################
 # CREATE NETWORK OBJECT
 #############################################################################################################################################
-  
+
 # create graph
 links_max = links[links$time == max(links$time), ]
 links_max = select(links_max, word1, word2)
@@ -168,9 +168,9 @@ nodes_max = nodes[nodes$time == max(nodes$time), ]
 nodes_max = select(nodes_max, names)
 net = graph_from_data_frame(d = links_max, vertices = nodes_max, directed=F)
 #net = simplify(net, remove.multiple = T, remove.loops = T)
-  
+
 # create network with ggnetwork
-n = ggnetwork(net, arrow.gap=0, layout = "fruchtermanreingold", cell.jitter = 0.05)
+n = ggnetwork(net, arrow.gap=0, layout = "fruchtermanreingold", cell.jitter = 0.05, niter = 20000)
 
 # split network in nodes and edges
 n_nodes = n[is.na(n$na.y), ]
@@ -182,58 +182,41 @@ nodes = merge(nodes, n_nodes, by.x = "names", by.y = "vertex.names")
 # combine time/Freq with edges
 test = select(n_nodes, vertex.names, x)
 n_links = merge(n_links, test, by.x = "xend", by.y = "x")
-colnames(links) = c("vertex.names.y","vertex.names.x","freq","time")
-test = merge(links, n_links, c("vertex.names.x","vertex.names.y"))
+n_links = merge(links, n_links, by.x=c("word2", "word1"), by.y=c("vertex.names.x", "vertex.names.y"))
+n_links$word1 = NULL
+n_links$Freq = NA
+nodes$freq = NA
 
-#############################################################################################################################################
-# DATA PROCESSING ON NETWORK DATA
-#############################################################################################################################################
+nodes = select(nodes, x, y, names, Freq, xend, yend, freq, na.x, na.y, time)
+colnames(nodes) = c("x", "y", "vertex.names", "Freq", "xend", "yend", "freq", "na.x", "na.y", "time")
+n_links = select(n_links, x, y, word2, Freq, xend, yend, freq, na.x, na.y, time)
+colnames(n_links) = c("x", "y", "vertex.names", "Freq", "xend", "yend", "freq", "na.x", "na.y", "time")
 
-# need to find which time each node first appears and then add an NA for that node from that time onwards
-mintimes = rbind(
-  big_data %>% group_by(x,y) %>% summarise(time=min(time)),
-  big_data %>% group_by(xend,yend) %>% summarise(time=min(time)) %>% rename(x=xend,y=yend)
-) %>% group_by(x,y) %>% summarise(time=min(time)) %>% ungroup() %>% as.data.frame
-
-# safe position of nodes of last network (the biggest!!!)
-dfx = subset(big_data, big_data$time == max(big_data$time))
-dfx = as.data.frame.matrix(dfx[is.na(dfx$freq),]) 
-mintimes$x = as.numeric(mintimes$x)
-mintimes$y = as.numeric(mintimes$y)
-nodetimes = dfx %>% left_join(mintimes)
-
-# expand rows to fill up to end of time
-mt = max(big_data$time)
-df.expanded = nodetimes[rep(row.names(nodetimes), (mt-nodetimes$time)), 1:11]
-
-df.expanded1 = df.expanded %>% group_by(vertex.names) %>% mutate(time = time + row_number() - 1)
-df.expanded1 = as.data.frame(df.expanded1)
-
-# bind back
-big_data.sp = rbind(df.expanded1, big_data)
+big_data = rbind(n_links, nodes)
 
 #############################################################################################################################################
 # PLOT NETWORK
 #############################################################################################################################################
 
 # work around (ggnetwork bug)
-write_csv(big_data.sp,"dat.csv")
+write_csv(big_data,"dat.csv")
 big_data = read_csv("dat.csv")
+
+big_data$Freq = as.numeric(big_data$Freq)
 
 # coloring of network
 myPalette = colorRampPalette(c("#66b3ff", "#00264d"))
 
 # split data for plotting
-big_data.sp = split(big_data.sp, big_data.sp$time)
+big_data.sp = split(big_data, big_data$time)
 
 # plot  
-test = rbind(big_data.sp[[2]], data.frame(x=NA,y=NA,degree=NA,Freq=NA,na.x=NA,vertex.names=NA,xend=NA,yend=NA,freq=NA,na.y=NA,time=NA))
+test = rbind(big_data.sp[[28]], data.frame(x=NA,y=NA,Freq=NA,na.x=NA,vertex.names=NA,xend=NA,yend=NA,freq=NA,na.y=NA,time=NA))
 
 ggplot(test, aes(x = x, y = y, xend = xend, yend = yend)) +
-  geom_edges(aes(alpha = Freq)) +
-  geom_nodelabel(aes(label = test$vertex.names, color = degree)) +
+  geom_edges(aes(alpha = freq)) +
+  geom_nodelabel(aes(label = test$vertex.names, color = Freq)) +
   theme_blank() +
   scale_colour_gradientn(colours = myPalette(100)) +
   theme(legend.position="none") +
-  xlim(0,1)+ylim(0,1) +
-  guides(color=guide_legend(keyheight=0.3,default.unit="inch",override.aes = list(size=6)))
+  xlim(0,1)+ylim(0,1)
