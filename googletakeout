@@ -17,13 +17,14 @@ require(tm)
 require(ggnetwork)
 require(tnet)
 library(readr)
+require(gganimate)
 
 #############################################################################################################################################
 # DATA IMPORT
 #############################################################################################################################################
 
 # load file names with json ending
-filenames = list.files("C:/Users/Alex/Documents/R/google/", pattern="*.json", full.names=TRUE)
+filenames = list.files("C:/Users/akruse/Documents/Projekte_Weitere/Google/Takeout/Takeout/Searches/", pattern="*.json", full.names=TRUE)
 
 # loop: import json files
 big_data_list = list()
@@ -89,12 +90,17 @@ mydata$query = singularize(mydata$query)
 mydata$query = gsub("datum","data",mydata$query)
 
 # convert timestamp to year/month
-mydata$timestamp = format(mydata$timestamp_real, "%Y-%m")
-mydata$timestamp = transform(mydata,id=as.numeric(factor(timestamp)))
-time = mydata$timestamp$id
-mydata = select(mydata, query)
-mydata_all2 = cbind(mydata, time)
-rm(time, mydata_words)
+mydata$timestamp = as.numeric(as.character(mydata$timestamp))
+mydata = mydata[with(mydata, order(timestamp, decreasing = F)), ]
+mydata$timestamp = format(mydata$timestamp_real, "%m-%Y")
+checker = as.data.frame(unique(mydata$timestamp))
+checker$id = 1:nrow(checker)
+
+mydata = merge(mydata, checker, by.x = "timestamp", by.y = "unique(mydata$timestamp)", all = T)
+mydata_all2 = select(mydata, query, id)
+colnames(mydata_all2) = c("query","time")
+colnames(checker) = c("timestamp","id")
+rm(mydata_words)
 
 #############################################################################################################################################
 # PREPARE DATA FOR NETWORK OBJECT
@@ -203,20 +209,31 @@ write_csv(big_data,"dat.csv")
 big_data = read_csv("dat.csv")
 
 big_data$Freq = as.numeric(big_data$Freq)
+big_data = merge(big_data, checker, by.x = "time", by.y = "id", all.x = T)
 
-# coloring of network
-myPalette = colorRampPalette(c("#66b3ff", "#00264d"))
+#############################################################################################################################################
+# GGANIMATE
+#############################################################################################################################################
 
-# split data for plotting
+
+big_data$Freq2[is.na(big_data$Freq)] = big_data$freq
+myPalette = colorRampPalette(brewer.pal(9,"Blues"))
+
 big_data.sp = split(big_data, big_data$time)
+test = rbind(big_data.sp[[1]], data.frame(x=NA,y=NA,Freq=NA,na.x=NA,vertex.names=NA,xend=NA,yend=NA,freq=NA,na.y=NA,time=NA,timestamp=NA))
 
-# plot  
-test = rbind(big_data.sp[[28]], data.frame(x=NA,y=NA,Freq=NA,na.x=NA,vertex.names=NA,xend=NA,yend=NA,freq=NA,na.y=NA,time=NA))
 
+# make gplot
 ggplot(test, aes(x = x, y = y, xend = xend, yend = yend)) +
   geom_edges(aes(alpha = freq)) +
   geom_nodelabel(aes(label = test$vertex.names, color = Freq)) +
   theme_blank() +
-  scale_colour_gradientn(colours = myPalette(100)) +
-  theme(legend.position="none") +
-  xlim(0,1)+ylim(0,1)
+  scale_colour_gradientn(colours = myPalette(10)) +
+  theme(legend.position="bottom") +
+  xlim(0,1)+ylim(0,1) +
+  #labs(title = paste("From","08-2014","until",big_data$timestamp)) +
+  theme(plot.title = element_text(hjust = 0.5))
+
+# Save it to Gif
+gganimate(pp, "googlesearch.gif", ani.width=1025, ani.height=512)
+
