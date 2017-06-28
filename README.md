@@ -1,6 +1,6 @@
 ## R related Google Search History over time
 
-![alt text](https://github.com/adam-p/markdown-here/raw/master/src/common/images/icon48.png "Logo Title Text 1")
+![alt text](https://github.com/kruse-alex/takeout/blob/master/googlesearch.gif)
 
 Find the code for the analysis here. You just need to go here https://takeout.google.com/settings/takeout and download your Google search history. 
 
