@@ -199,41 +199,28 @@ n_links = select(n_links, x, y, word2, Freq, xend, yend, freq, na.x, na.y, time)
 colnames(n_links) = c("x", "y", "vertex.names", "Freq", "xend", "yend", "freq", "na.x", "na.y", "time")
 
 big_data = rbind(n_links, nodes)
-
+big_data = merge(big_data, checker, by.x = "time", by.y = "id", all.x = T)
+big_data = big_data[with(big_data, order(na.y, time)), ]
+big_data$timestamp = factor(big_data$timestamp, levels = unique(big_data$timestamp))
 #############################################################################################################################################
 # PLOT NETWORK
 #############################################################################################################################################
 
-# work around (ggnetwork bug)
-write_csv(big_data,"dat.csv")
-big_data = read_csv("dat.csv")
-
-big_data$Freq = as.numeric(big_data$Freq)
-big_data = merge(big_data, checker, by.x = "time", by.y = "id", all.x = T)
-
-#############################################################################################################################################
-# GGANIMATE
-#############################################################################################################################################
-
-
-big_data$Freq2[is.na(big_data$Freq)] = big_data$freq
-myPalette = colorRampPalette(brewer.pal(9,"Blues"))
-
-big_data.sp = split(big_data, big_data$time)
-test = rbind(big_data.sp[[1]], data.frame(x=NA,y=NA,Freq=NA,na.x=NA,vertex.names=NA,xend=NA,yend=NA,freq=NA,na.y=NA,time=NA,timestamp=NA))
-
-
 # make gplot
-ggplot(test, aes(x = x, y = y, xend = xend, yend = yend)) +
-  geom_edges(aes(alpha = freq)) +
-  geom_nodelabel(aes(label = test$vertex.names, color = Freq)) +
+pp = ggplot(big_data, aes(x = x, y = y, xend = xend, yend = yend, frame = timestamp)) +
+  geom_edges(color = "#9E9E9E") +
+  geom_nodelabel(aes(label = big_data$vertex.names, fill = Freq), color = "white") +
   theme_blank() +
-  scale_colour_gradientn(colours = myPalette(10)) +
+  scale_fill_gradient2(low="#8CC4FF", mid = "blue", high="#FF00FF") +
   theme(legend.position="bottom") +
-  xlim(0,1)+ylim(0,1) +
-  #labs(title = paste("From","08-2014","until",big_data$timestamp)) +
-  theme(plot.title = element_text(hjust = 0.5))
+  xlim(0,1) + ylim(0,1) +
+  labs(title = paste("From","08-2014","until")) +
+  theme(plot.title = element_text(hjust = 0.5, color = "white")) +
+  theme(plot.background = element_rect(fill = 'black', colour = 'black')) +
+  theme(panel.background = element_rect(fill = 'black', colour = 'black'))
 
 # Save it to Gif
-gganimate(pp, "googlesearch.gif", ani.width=1025, ani.height=512)
+animation::ani.options(interval=1.5)
+gganimate(pp, "googlesearch.gif", ani.width=1025, ani.height=512, title_frame = T)
+#gganimate(pp)
 
